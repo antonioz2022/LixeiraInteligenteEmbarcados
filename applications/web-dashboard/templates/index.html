@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Sora:wght@500;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Inter:wght@400;500;600&family=Space+Grotesk:wght@200;300;400&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/static/css/style.css" />
@@ -15,13 +15,25 @@
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   </head>
   <body>
-    <div class="bg-orb orb-1" aria-hidden="true"></div>
-    <div class="bg-orb orb-2" aria-hidden="true"></div>
+    <svg class="texture-defs" aria-hidden="true">
+      <filter id="oil-stain" x="0%" y="0%" width="100%" height="100%">
+        <feTurbulence
+          type="fractalNoise"
+          baseFrequency="0.9"
+          numOctaves="2"
+          seed="12"
+          result="noise"
+        />
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="36" />
+      </filter>
+    </svg>
+    <div class="stain stain-1" aria-hidden="true"></div>
+    <div class="stain stain-2" aria-hidden="true"></div>
     <div class="bg-grid" aria-hidden="true"></div>
 
     <header class="hero shell">
       <div class="hero-copy">
-        <p class="eyebrow">EcoTech IoT • Recife</p>
+        <p class="eyebrow">EcoTech IoT • Cesar School</p>
         <h1>Lixeira Inteligente</h1>
         <p class="subtitle">Coleta seletiva com telemetria em tempo real e inteligência operacional.</p>
       </div>
@@ -32,20 +44,38 @@
     </header>
 
     <main class="shell grid">
-      <section class="card card-level">
-        <h2>Visão Instantânea</h2>
+      <section class="card card-level hero-card">
+        <div class="section-title">
+          <span class="section-label">Monitoramento</span>
+          <h2>Visão Instantânea</h2>
+        </div>
+        <div class="divider" aria-hidden="true"></div>
         <div class="level-wrap">
           <article class="ring-card oil">
-            <div class="ring" id="ring-oil">
-              <div class="ring-inner">
+            <div class="gauge" id="ring-oil">
+              <div class="gauge-liquid" aria-hidden="true">
+                <div class="gauge-liquid-fill"></div>
+              </div>
+              <svg viewBox="0 0 120 120" aria-hidden="true">
+                <circle class="gauge-track" cx="60" cy="60" r="52"></circle>
+                <circle class="gauge-progress" cx="60" cy="60" r="52"></circle>
+              </svg>
+              <div class="gauge-inner">
                 <strong id="level-oil">0%</strong>
                 <span>Óleo</span>
               </div>
             </div>
           </article>
           <article class="ring-card solid">
-            <div class="ring" id="ring-solid">
-              <div class="ring-inner">
+            <div class="gauge" id="ring-solid">
+              <div class="gauge-liquid" aria-hidden="true">
+                <div class="gauge-liquid-fill"></div>
+              </div>
+              <svg viewBox="0 0 120 120" aria-hidden="true">
+                <circle class="gauge-track" cx="60" cy="60" r="52"></circle>
+                <circle class="gauge-progress" cx="60" cy="60" r="52"></circle>
+              </svg>
+              <div class="gauge-inner">
                 <strong id="level-solid">0%</strong>
                 <span>Sólido</span>
               </div>
@@ -55,31 +85,43 @@
         <div class="status-grid">
           <div class="status-tile">
             <span>Sensor IR</span>
-            <strong id="ir-full">Não</strong>
+            <strong id="ir-full" class="status-badge" data-state="VAZIO">VAZIO</strong>
           </div>
           <div class="status-tile">
             <span>Nível óleo</span>
-            <strong id="oil-chip">Normal</strong>
+            <strong id="oil-chip" class="status-badge" data-state="NORMAL">NORMAL</strong>
           </div>
           <div class="status-tile">
             <span>Nível sólido</span>
-            <strong id="solid-chip">Normal</strong>
+            <strong id="solid-chip" class="status-badge" data-state="NORMAL">NORMAL</strong>
           </div>
         </div>
       </section>
 
       <section class="card card-chart">
-        <h2>Mapa de Capacidade</h2>
+        <div class="section-title">
+          <span class="section-label">Distribuição</span>
+          <h2>Mapa de Capacidade</h2>
+        </div>
+        <div class="divider" aria-hidden="true"></div>
         <canvas id="levelChart"></canvas>
       </section>
 
       <section class="card card-chart full">
-        <h2>Histórico de Descartes (7 dias)</h2>
+        <div class="section-title">
+          <span class="section-label">Série temporal</span>
+          <h2>Histórico de Descartes (7 dias)</h2>
+        </div>
+        <div class="divider" aria-hidden="true"></div>
         <canvas id="historyChart"></canvas>
       </section>
 
       <section class="card card-stats">
-        <h2>Resultados Acumulados</h2>
+        <div class="section-title">
+          <span class="section-label">Acumulado</span>
+          <h2>Resultados</h2>
+        </div>
+        <div class="divider" aria-hidden="true"></div>
         <div class="stats-grid">
           <div class="kpi">
             <p>Total de descartes (óleo)</p>
@@ -101,19 +143,31 @@
       </section>
 
       <section class="card card-feed">
-        <h2>Feed de Descartes</h2>
+        <div class="section-title">
+          <span class="section-label">Eventos</span>
+          <h2>Feed de Descartes</h2>
+        </div>
+        <div class="divider" aria-hidden="true"></div>
         <ul id="discard-feed" class="feed-list">
           <li>Nenhum descarte recebido ainda.</li>
         </ul>
       </section>
 
       <section class="card full">
-        <h2>Alertas Recentes</h2>
+        <div class="section-title">
+          <span class="section-label">Incidentes</span>
+          <h2>Alertas Recentes</h2>
+        </div>
+        <div class="divider" aria-hidden="true"></div>
         <ul id="alerts-list" class="feed-list alerts-list">
           <li>Nenhum alerta até agora.</li>
         </ul>
       </section>
     </main>
+    <footer class="metadata shell">
+      <span>Embedded Systems Lab • Cesar School</span>
+      <span>Telemetria experimental • Lixeira Inteligente</span>
+    </footer>
 
     <script src="/static/js/app.js"></script>
   </body>
