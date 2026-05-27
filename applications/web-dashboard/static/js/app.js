@@ -18,11 +18,37 @@ const ui = {
   ringSolid: document.getElementById("ring-solid"),
 };
 
-const chartBase = {
-  borderColor: "rgba(146, 191, 212, 0.3)",
-  tickColor: "rgba(194, 223, 239, 0.88)",
-  gridColor: "rgba(146, 191, 212, 0.16)",
+const palette = {
+  accent: "#3BFFC8",
+  accentSecondary: "#C8FF3B",
+  warm: "#EF9F27",
+  surface: "#0E2E1F",
+  text: "#F5F0E8",
 };
+
+const chartBase = {
+  tickColor: "rgba(245, 240, 232, 0.6)",
+  gridColor: "rgba(245, 240, 232, 0.15)",
+};
+
+const tooltipBase = {
+  backgroundColor: palette.surface,
+  borderColor: palette.warm,
+  borderWidth: 1,
+  titleColor: palette.text,
+  bodyColor: palette.text,
+  padding: 8,
+  displayColors: false,
+  titleFont: { family: "DM Mono", size: 12, weight: "400" },
+  bodyFont: { family: "DM Mono", size: 12, weight: "400" },
+};
+
+function createAreaGradient(ctx, chartArea, color) {
+  const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+  gradient.addColorStop(0, `${color}99`);
+  gradient.addColorStop(1, `${color}00`);
+  return gradient;
+}
 
 const levelChart = new Chart(document.getElementById("levelChart"), {
   type: "bar",
@@ -32,26 +58,29 @@ const levelChart = new Chart(document.getElementById("levelChart"), {
       {
         label: "Nível (%)",
         data: [0, 0],
-        borderRadius: 12,
-        backgroundColor: ["#29b6f6", "#7cd992"],
+        borderRadius: { topLeft: 4, topRight: 4, bottomLeft: 0, bottomRight: 0 },
+        backgroundColor: [palette.accent, palette.accentSecondary],
       },
     ],
   },
   options: {
-    animation: { duration: 460, easing: "easeOutQuart" },
+    animation: { duration: 800, easing: "easeInCubic" },
     plugins: {
-      legend: { labels: { color: chartBase.tickColor } },
+      legend: { labels: { color: chartBase.tickColor, font: { family: "DM Mono", size: 11 } } },
+      tooltip: tooltipBase,
     },
     scales: {
       y: {
         min: 0,
         max: 100,
-        ticks: { color: chartBase.tickColor },
-        grid: { color: chartBase.gridColor },
+        ticks: { display: false },
+        grid: { color: chartBase.gridColor, drawTicks: false },
+        border: { display: false },
       },
       x: {
-        ticks: { color: chartBase.tickColor },
-        grid: { color: "transparent" },
+        ticks: { display: false },
+        grid: { display: false },
+        border: { display: false },
       },
     },
   },
@@ -65,35 +94,52 @@ const historyChart = new Chart(document.getElementById("historyChart"), {
       {
         label: "Óleo",
         data: [],
-        borderColor: "#29b6f6",
-        backgroundColor: "rgba(41,182,246,0.16)",
+        borderColor: palette.accent,
+        backgroundColor: (context) => {
+          const { chart } = context;
+          const { ctx, chartArea } = chart;
+          if (!chartArea) return "rgba(59,255,200,0.2)";
+          return createAreaGradient(ctx, chartArea, palette.accent);
+        },
         fill: true,
         tension: 0.35,
+        pointRadius: 0,
+        borderWidth: 2,
       },
       {
         label: "Sólido",
         data: [],
-        borderColor: "#7cd992",
-        backgroundColor: "rgba(124,217,146,0.16)",
+        borderColor: palette.accentSecondary,
+        backgroundColor: (context) => {
+          const { chart } = context;
+          const { ctx, chartArea } = chart;
+          if (!chartArea) return "rgba(200,255,59,0.2)";
+          return createAreaGradient(ctx, chartArea, palette.accentSecondary);
+        },
         fill: true,
         tension: 0.35,
+        pointRadius: 0,
+        borderWidth: 2,
       },
     ],
   },
   options: {
-    animation: { duration: 460, easing: "easeOutQuart" },
+    animation: { duration: 800, easing: "easeInCubic" },
     plugins: {
-      legend: { labels: { color: chartBase.tickColor } },
+      legend: { labels: { color: chartBase.tickColor, font: { family: "DM Mono", size: 11 } } },
+      tooltip: tooltipBase,
     },
     scales: {
       y: {
         beginAtZero: true,
-        ticks: { color: chartBase.tickColor, precision: 0 },
-        grid: { color: chartBase.gridColor },
+        ticks: { display: false },
+        grid: { color: chartBase.gridColor, drawTicks: false },
+        border: { display: false },
       },
       x: {
-        ticks: { color: chartBase.tickColor },
-        grid: { color: chartBase.gridColor },
+        ticks: { display: false },
+        grid: { display: false },
+        border: { display: false },
       },
     },
   },
@@ -122,9 +168,15 @@ function animateNumber(el, value, suffix = "", decimals = 0) {
 }
 
 function severityFromLevel(level) {
-  if (level >= 85) return "Cheio";
-  if (level >= 60) return "Atenção";
-  return "Normal";
+  if (level >= 85) return "CHEIO";
+  if (level >= 60) return "ATENÇÃO";
+  return "NORMAL";
+}
+
+function setBadgeState(el, state) {
+  if (!el) return;
+  el.textContent = state;
+  el.dataset.state = state;
 }
 
 function updateState(data) {
@@ -137,10 +189,10 @@ function updateState(data) {
   ui.ringOil.style.setProperty("--value", `${Math.max(0, Math.min(100, oil))}`);
   ui.ringSolid.style.setProperty("--value", `${Math.max(0, Math.min(100, solid))}`);
 
-  ui.irFull.textContent = data.ir_full ? "Sim" : "Não";
+  setBadgeState(ui.irFull, data.ir_full ? "CHEIO" : "VAZIO");
   ui.lastUpdate.textContent = formatTimestamp(data.timestamp);
-  ui.oilChip.textContent = severityFromLevel(oil);
-  ui.solidChip.textContent = severityFromLevel(solid);
+  setBadgeState(ui.oilChip, severityFromLevel(oil));
+  setBadgeState(ui.solidChip, severityFromLevel(solid));
 }
 
 function updateStats(stats) {
