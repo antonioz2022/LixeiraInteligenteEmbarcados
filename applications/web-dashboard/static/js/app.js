@@ -179,6 +179,16 @@ function setBadgeState(el, state) {
   el.dataset.state = state;
 }
 
+function setGauge(ringEl, value) {
+  const clamped = Math.max(0, Math.min(100, value));
+  ringEl.style.setProperty("--value", clamped);
+  const arc = 245;
+  const progress = ringEl.querySelector(".gauge-progress");
+  if (progress) {
+    progress.style.strokeDasharray = `${(arc * clamped / 100).toFixed(1)} 327`;
+  }
+}
+
 function updateState(data) {
   const oil = Number(data.level_oil || 0);
   const solid = Number(data.level_solid || 0);
@@ -186,8 +196,8 @@ function updateState(data) {
   animateNumber(ui.levelOil, oil, "%", 1);
   animateNumber(ui.levelSolid, solid, "%", 1);
 
-  ui.ringOil.style.setProperty("--value", `${Math.max(0, Math.min(100, oil))}`);
-  ui.ringSolid.style.setProperty("--value", `${Math.max(0, Math.min(100, solid))}`);
+  setGauge(ui.ringOil, oil);
+  setGauge(ui.ringSolid, solid);
 
   setBadgeState(ui.irFull, data.ir_full ? "CHEIO" : "VAZIO");
   ui.lastUpdate.textContent = formatTimestamp(data.timestamp);
@@ -288,7 +298,43 @@ socket.on("discard", (payload) => {
   prependDiscardFeed(payload);
 });
 
-socket.on("alert", async () => {
+function showToast(message, compartment) {
+  let container = document.getElementById("toast-container");
+  if (!container) {
+    container = document.createElement("div");
+    container.id = "toast-container";
+    document.body.appendChild(container);
+  }
+
+  const toast = document.createElement("div");
+  toast.className = "toast";
+  const icon = compartment === "oleo" ? "🛢️" : "🗑️";
+  toast.innerHTML = `<span class="toast-icon">${icon}</span><span class="toast-msg">${message}</span>`;
+  container.appendChild(toast);
+
+  requestAnimationFrame(() => toast.classList.add("toast-visible"));
+
+  setTimeout(() => {
+    toast.classList.remove("toast-visible");
+    toast.addEventListener("transitionend", () => toast.remove(), { once: true });
+  }, 6000);
+}
+
+function sendBrowserNotification(message, compartment) {
+  if (Notification.permission !== "granted") return;
+  const icon = compartment === "oleo" ? "🛢️" : "🗑️";
+  new Notification("Lixeira Inteligente", {
+    body: message,
+    icon: icon,
+    tag: `smartbin-${compartment}`,
+  });
+}
+
+socket.on("alert", async (payload) => {
+  if (payload && payload.message) {
+    showToast(payload.message, payload.compartment);
+    sendBrowserNotification(payload.message, payload.compartment);
+  }
   try {
     const data = await fetchJson("/api/alerts?limit=15");
     renderAlerts(data.items || []);
@@ -296,5 +342,9 @@ socket.on("alert", async () => {
     console.error("Falha ao atualizar alertas:", err);
   }
 });
+
+if ("Notification" in window && Notification.permission === "default") {
+  Notification.requestPermission();
+}
 
 loadInitialData();

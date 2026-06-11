@@ -259,7 +259,6 @@ h1 {
 
 .gauge {
   --value: 0;
-  --circumference: 327;
   position: relative;
   width: min(220px, 100%);
   aspect-ratio: 1 / 1;
@@ -270,13 +269,15 @@ h1 {
 .gauge svg {
   width: 100%;
   height: 100%;
-  transform: rotate(-90deg);
+  transform: rotate(135deg);
 }
 
 .gauge-track {
   fill: none;
   stroke: rgba(245, 240, 232, 0.08);
   stroke-width: 8;
+  stroke-dasharray: 245 327;
+  stroke-linecap: round;
 }
 
 .gauge-progress {
@@ -284,9 +285,8 @@ h1 {
   stroke: var(--liquid);
   stroke-width: 8;
   stroke-linecap: round;
-  stroke-dasharray: var(--circumference);
-  stroke-dashoffset: calc(var(--circumference) - (var(--circumference) * var(--value)) / 100);
-  transition: stroke-dashoffset 0.8s ease;
+  stroke-dasharray: 0 327;
+  transition: stroke-dasharray 0.8s ease;
 }
 
 .gauge-liquid {
@@ -473,6 +473,51 @@ canvas {
   .metadata {
     flex-direction: column;
   }
+}
+
+#toast-container {
+  position: fixed;
+  top: 1.5rem;
+  right: 1.5rem;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: #0e2e1f;
+  border: 1px solid var(--accent-warm);
+  color: var(--text);
+  padding: 0.9rem 1.25rem;
+  font-family: "DM Mono", monospace;
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  box-shadow:
+    0 0 24px rgba(239, 159, 39, 0.3),
+    0 8px 32px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transform: translateX(120%);
+  transition: opacity 0.35s ease, transform 0.35s ease;
+  max-width: 340px;
+}
+
+.toast.toast-visible {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.toast-icon {
+  font-size: 1.4rem;
+  flex-shrink: 0;
+}
+
+.toast-msg {
+  line-height: 1.4;
 }
 
 @keyframes pulse-ring {

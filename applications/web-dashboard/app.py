@@ -89,17 +89,18 @@ def _emit_alert(compartment: str, level: float, message: str) -> None:
         LOGGER.warning(error)
 
 
-def _evaluate_thresholds(level_oil: float, level_solid: float) -> None:
+def _evaluate_thresholds(level_oil: float, level_solid: float, ir_full: bool) -> None:
     if level_oil >= settings.alert_threshold and not alert_lock["oleo"]:
         alert_lock["oleo"] = True
-        _emit_alert("oleo", level_oil, f"Alerta: compartimento de oleo em {level_oil:.1f}%")
+        _emit_alert("oleo", level_oil, "Lixeira de Óleo cheia, fazer coleta")
     elif level_oil <= settings.alert_reset_threshold:
         alert_lock["oleo"] = False
 
-    if level_solid >= settings.alert_threshold and not alert_lock["solido"]:
+    solid_full = level_solid >= settings.alert_threshold or ir_full
+    if solid_full and not alert_lock["solido"]:
         alert_lock["solido"] = True
-        _emit_alert("solido", level_solid, f"Alerta: compartimento de solido em {level_solid:.1f}%")
-    elif level_solid <= settings.alert_reset_threshold:
+        _emit_alert("solido", level_solid, "Lixeira de Sólidos cheia, fazer coleta")
+    elif not solid_full and level_solid <= settings.alert_reset_threshold:
         alert_lock["solido"] = False
 
 
@@ -123,7 +124,7 @@ def on_telemetry(payload: dict[str, Any]) -> None:
         }
     )
     insert_telemetry(ts, level_oil, level_solid, ir_full, payload)
-    _evaluate_thresholds(level_oil, level_solid)
+    _evaluate_thresholds(level_oil, level_solid, ir_full)
     socketio.emit("telemetry", state)
 
 
