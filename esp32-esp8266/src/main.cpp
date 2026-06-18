@@ -21,6 +21,7 @@ static const uint8_t PIN_LED_B = 27;
 static const bool IR_ACTIVE_LOW = true;
 static const float BIN_DEPTH_CM = 30.0f;           // Ajuste conforme profundidade real
 static const float FULL_THRESHOLD_PCT = 85.0f;
+static const float CLEAR_THRESHOLD_PCT = 70.0f;  // histerese: so "desincha" abaixo disto
 static const unsigned long TELEMETRY_INTERVAL_MS = 2000;
 static const unsigned long DEBOUNCE_MS = 40;
 
@@ -76,9 +77,18 @@ void updateLed() {
     return;
   }
 
-  const bool anyFull = (lastOilLevelPct >= FULL_THRESHOLD_PCT) || (lastSolidLevelPct >= FULL_THRESHOLD_PCT);
-  if (anyFull) {
-    setRgb(1, 0, 0);  // vermelho quando algum compartimento estah cheio/quase cheio
+  // Histerese: entra em "cheio" em FULL_THRESHOLD e so sai abaixo de
+  // CLEAR_THRESHOLD, evitando o LED piscar quando o nivel oscila na borda.
+  static bool latchedFull = false;
+  const float maxLevel = max(lastOilLevelPct, lastSolidLevelPct);
+  if (!latchedFull && maxLevel >= FULL_THRESHOLD_PCT) {
+    latchedFull = true;
+  } else if (latchedFull && maxLevel <= CLEAR_THRESHOLD_PCT) {
+    latchedFull = false;
+  }
+
+  if (latchedFull) {
+    setRgb(1, 0, 0);  // vermelho quando algum compartimento estah cheio
   } else {
     setRgb(0, 0, 0);  // sem evento, LED apagado
   }
@@ -116,7 +126,7 @@ void connectMqttIfNeeded() {
   }
 }
 
-float readDistanceCm() {
+float readDistanceOnceCm() {
   digitalWrite(PIN_US_TRIG, LOW);
   delayMicroseconds(3);
   digitalWrite(PIN_US_TRIG, HIGH);
@@ -129,6 +139,38 @@ float readDistanceCm() {
   }
   // cm = (tempo_us * velocidade_som_cm/us) / 2
   return (duration * 0.0343f) / 2.0f;
+}
+
+float readDistanceCm() {
+  // O HC-SR04 produz picos espurios; usamos a mediana de varias amostras
+  // para descartar leituras isoladas ruins (ex: eco fora de fase).
+  static const uint8_t SAMPLES = 5;
+  float readings[SAMPLES];
+  uint8_t valid = 0;
+
+  for (uint8_t i = 0; i < SAMPLES; i++) {
+    const float d = readDistanceOnceCm();
+    if (d >= 0.0f) {
+      readings[valid++] = d;
+    }
+    delay(8);  // intervalo minimo entre disparos para evitar eco residual
+  }
+
+  if (valid == 0) {
+    return -1.0f;
+  }
+
+  // Insertion sort (vetor minusculo) e seleciona a mediana das leituras validas.
+  for (uint8_t i = 1; i < valid; i++) {
+    const float key = readings[i];
+    int8_t j = i - 1;
+    while (j >= 0 && readings[j] > key) {
+      readings[j + 1] = readings[j];
+      j--;
+    }
+    readings[j + 1] = key;
+  }
+  return readings[valid / 2];
 }
 
 float readOilLevelPct() {

@@ -16,6 +16,24 @@ os.environ["TELEGRAM_CHAT_ID"] = ""
 os.environ["MQTT_AUTO_START"] = "false"
 
 import app as smartbin_app  # noqa: E402
+from mqtt_client import SmartBinMQTTClient  # noqa: E402
+
+import paho.mqtt.client as mqtt  # noqa: E402
+
+
+def _firmware_telemetry_message(topic: str, *, oil: float, solid: float, ir: bool) -> mqtt.MQTTMessage:
+    """Monta uma MQTTMessage identica a que o ESP32 publica em main.cpp.
+
+    O firmware emite: {"nivel_oleo_pct":..,"nivel_solido_pct":..,"ir_cheio":bool,"device_ms":..}
+    sem campo 'timestamp' (esse e adicionado pelo backend).
+    """
+    payload = (
+        '{"nivel_oleo_pct":%.2f,"nivel_solido_pct":%.2f,"ir_cheio":%s,"device_ms":123456}'
+        % (oil, solid, "true" if ir else "false")
+    )
+    msg = mqtt.MQTTMessage(topic=topic.encode("utf-8"))
+    msg.payload = payload.encode("utf-8")
+    return msg
 
 
 class BackendTests(unittest.TestCase):
@@ -122,6 +140,26 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(len(data["labels"]), 7)
         self.assertEqual(self._count_rows("discard_events"), 2)
 
+    def test_bootstrap_rearms_lock_when_bin_already_full(self):
+        # Simula reinicio do processo com a lixeira ja cheia: o lock comeca
+        # falso e o estado e restaurado do banco antes do bootstrap re-armar.
+        ts = datetime.now(timezone.utc).isoformat()
+        with patch("app.send_telegram_alert", return_value=None):
+            smartbin_app.on_telemetry({"nivel_oleo_pct": 95, "nivel_solido_pct": 10, "ir_cheio": False})
+            self.assertEqual(self._count_rows("alerts"), 1)
+
+        # Estado de processo "reiniciado".
+        smartbin_app.alert_lock["oleo"] = False
+        smartbin_app.alert_lock["solido"] = False
+        smartbin_app.bootstrap_state()
+        self.assertTrue(smartbin_app.alert_lock["oleo"])
+
+        # Novas leituras com a lixeira ainda cheia nao devem gerar novos alertas.
+        with patch("app.send_telegram_alert", return_value=None):
+            smartbin_app.on_telemetry({"nivel_oleo_pct": 96, "nivel_solido_pct": 10, "ir_cheio": False})
+            smartbin_app.on_telemetry({"nivel_oleo_pct": 97, "nivel_solido_pct": 10, "ir_cheio": False})
+        self.assertEqual(self._count_rows("alerts"), 1)
+
     def test_alert_threshold_lock_and_reset(self):
         with patch("app.send_telegram_alert", return_value=None):
             smartbin_app.on_telemetry({"nivel_oleo_pct": 90, "nivel_solido_pct": 20, "ir_cheio": False})
@@ -137,6 +175,106 @@ class BackendTests(unittest.TestCase):
         data = response.get_json()
         self.assertEqual(len(data["items"]), 2)
         self.assertEqual(data["items"][0]["compartment"], "oleo")
+
+
+class FirmwareIntegrationTests(unittest.TestCase):
+    """Exercita o caminho real: payload do ESP32 -> parser MQTT -> app.
+
+    Diferente de BackendTests (que chama on_telemetry direto), estes testes
+    passam pelo SmartBinMQTTClient._on_message exatamente como em producao,
+    garantindo que o JSON emitido pelo firmware nao gera notificacao repetida.
+    """
+
+    def setUp(self):
+        conn = sqlite3.connect(DB_FILE)
+        try:
+            conn.execute("DELETE FROM telemetry")
+            conn.execute("DELETE FROM discard_events")
+            conn.execute("DELETE FROM alerts")
+            conn.commit()
+        finally:
+            conn.close()
+        smartbin_app.alert_lock["oleo"] = False
+        smartbin_app.alert_lock["solido"] = False
+        # Cliente MQTT real conectado aos callbacks reais do app, sem broker.
+        self.mqtt = SmartBinMQTTClient(
+            host="localhost",
+            port=1883,
+            topic_base="smartbin",
+            username="",
+            password="",
+            on_telemetry=smartbin_app.on_telemetry,
+            on_discard=smartbin_app.on_discard,
+        )
+
+    def _count_alerts(self) -> int:
+        conn = sqlite3.connect(DB_FILE)
+        try:
+            return int(conn.execute("SELECT COUNT(*) FROM alerts").fetchone()[0])
+        finally:
+            conn.close()
+
+    def _deliver(self, msg: mqtt.MQTTMessage) -> None:
+        # Caminho identico ao recebimento real de uma mensagem do broker.
+        self.mqtt._on_message(self.mqtt.client, None, msg)
+
+    def test_firmware_full_bin_alerts_only_once_over_many_readings(self):
+        # O ESP32 publica a cada 2s. Com a lixeira cheia, dezenas de leituras
+        # iguais chegam; deve haver exatamente UM alerta.
+        with patch("app.send_telegram_alert", return_value=None):
+            for oil in (86.0, 88.5, 90.0, 91.2, 95.0, 99.9):
+                self._deliver(
+                    _firmware_telemetry_message(
+                        "smartbin/telemetry", oil=oil, solid=10.0, ir=False
+                    )
+                )
+        self.assertEqual(self._count_alerts(), 1)
+
+    def test_firmware_ir_solid_full_alerts_only_once(self):
+        # Compartimento solido cheio via sensor IR (nivel_solido = 100 fixo).
+        with patch("app.send_telegram_alert", return_value=None):
+            for _ in range(5):
+                self._deliver(
+                    _firmware_telemetry_message(
+                        "smartbin/telemetry", oil=10.0, solid=100.0, ir=True
+                    )
+                )
+        self.assertEqual(self._count_alerts(), 1)
+
+    def test_retained_message_on_reconnect_does_not_realert(self):
+        # Cenario real do bug: firmware publica com retained=true (main.cpp).
+        # Lixeira enche -> 1 alerta. Dashboard reinicia: o lock zera, o broker
+        # reentrega a mensagem retida. bootstrap_state() deve re-armar o lock
+        # a partir do banco, entao a mensagem retida NAO gera novo alerta.
+        with patch("app.send_telegram_alert", return_value=None):
+            self._deliver(
+                _firmware_telemetry_message(
+                    "smartbin/telemetry", oil=97.0, solid=10.0, ir=False
+                )
+            )
+        self.assertEqual(self._count_alerts(), 1)
+
+        # Simula reinicio do processo do dashboard.
+        smartbin_app.alert_lock["oleo"] = False
+        smartbin_app.alert_lock["solido"] = False
+        smartbin_app.bootstrap_state()
+
+        # Broker reentrega a mensagem retida ao reconectar.
+        with patch("app.send_telegram_alert", return_value=None):
+            self._deliver(
+                _firmware_telemetry_message(
+                    "smartbin/telemetry", oil=97.0, solid=10.0, ir=False
+                )
+            )
+        self.assertEqual(self._count_alerts(), 1)
+
+    def test_emptying_then_refilling_alerts_again(self):
+        # Histerese real: cheio -> coletado (esvazia) -> enche de novo = 2 alertas.
+        with patch("app.send_telegram_alert", return_value=None):
+            self._deliver(_firmware_telemetry_message("smartbin/telemetry", oil=95.0, solid=10.0, ir=False))
+            self._deliver(_firmware_telemetry_message("smartbin/telemetry", oil=30.0, solid=10.0, ir=False))  # coleta
+            self._deliver(_firmware_telemetry_message("smartbin/telemetry", oil=96.0, solid=10.0, ir=False))  # enche
+        self.assertEqual(self._count_alerts(), 2)
 
 
 if __name__ == "__main__":

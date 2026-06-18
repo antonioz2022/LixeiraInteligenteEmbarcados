@@ -163,6 +163,13 @@ def bootstrap_state() -> None:
             "ir_full": latest["ir_full"],
         }
     )
+    # Re-arma o lock de alerta a partir do ultimo estado conhecido para que um
+    # reinicio do processo com a lixeira ja cheia nao dispare uma nova
+    # notificacao a cada leitura recebida apos o boot.
+    if latest["level_oil"] >= settings.alert_threshold:
+        alert_lock["oleo"] = True
+    if latest["level_solid"] >= settings.alert_threshold or latest["ir_full"]:
+        alert_lock["solido"] = True
 
 
 init_db()

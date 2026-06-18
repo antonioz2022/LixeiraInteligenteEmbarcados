@@ -27,7 +27,9 @@ class Settings:
     mqtt_auto_start: bool = _get_bool("MQTT_AUTO_START", True)
 
     alert_threshold: float = float(os.getenv("ALERT_THRESHOLD", "85"))
-    alert_reset_threshold: float = float(os.getenv("ALERT_RESET_THRESHOLD", "80"))
+    # Faixa de histerese larga (alinhada com CLEAR_THRESHOLD_PCT do firmware)
+    # para evitar alertas falsos quando o nivel oscila na borda do limiar.
+    alert_reset_threshold: float = float(os.getenv("ALERT_RESET_THRESHOLD", "70"))
 
     liters_per_oil_discard: float = float(os.getenv("LITERS_PER_OIL_DISCARD", "0.5"))
     kg_per_solid_discard: float = float(os.getenv("KG_PER_SOLID_DISCARD", "0.2"))
